@@ -1,60 +1,39 @@
-from flask import Flask, jsonify, request
+from flask import Flask, request
+from flask_restful import Api, Resource
+from security import authenticate, identity
+from flask_jwt import JWT, jwt_required
 
 app = Flask(__name__)
+app.secret_key = "my_scret_key"
 
-stores = [
-    {
-        'name': "MY_store",
-        'items':[{
-            'name': 'item1',
-            'price': 100,
-        }]
-    }
-]
+jwt = JWT(app, authenticate, identity)
+api = Api(app)
 
-# POST /store data: {name:}
-@app.route('/store', methods=["POST"])
-def create_store():
-    request_store = request.get_json()
-    new_store = {
-        'name': request_store["name"],
-        'items': [] 
-    }
-    stores.append(new_store)
-    return jsonify(new_store)
+items = []
 
-# GET /store/<string:name> 
-@app.route('/store/<string:name>')
-def get_store(name):
-    for store in stores:
-        if store['name'] == name:
-            return jsonify(store)
-    return jsonify({'message': 'store not found'})
-# GET /store
-@app.route('/store')
-def get_stores():
-    return jsonify({"store": stores})
+class Item(Resource):
+    @jwt_required()
+    def get(self, name):
+        item = next(filter(lambda x: x['name'] == name, items), None)
+        return {"item":item}, 200 if item is not None else 404
+    
+    def post(self, name):
+        item = next(filter(lambda x: x == name, items), None)
+        if item:
+            return {"message": f"item {name} already exist"} , 404
+        data = request.get_json()
+        item = {"name": name,
+                 "price": data["price"]}
+        items.append(item)
+        return item, 201
 
-#POST /store/<string:name>/item {name:, price:}
-@app.route('/store/<string:name>/item', methods=["POST"])
-def create_item_in_store(name):
-    request_data = request.get_json()
-    for store in stores:
-        if store['name'] == name:
-            new_item = {
-                "name": request_data["name"],
-                "price": request_data["price"]
-            }
-            store["items"].append(new_item)
-            return jsonify(store)
-    return jsonify({'message': 'store not found'})
-#GET /store/<string:name>/item
+class ItemList(Resource):
+    def get(self):
+        return {"items": items}
+    
 
-@app.route('/store/<string:name>/item', methods=["GET"])
-def get_item_in_store(name):
-    for store in stores:
-        if store["name"] == name:
-            return jsonify(store["items"])
-    return jsonify({"no item found"})
+api.add_resource(Item, '/item/<string:name>')
+api.add_resource(ItemList, '/items')
 
 app.run(port=5000, debug=True)
+
